@@ -172,6 +172,17 @@ void __default_send_IPI_dest_field(unsigned int mask, int vector, unsigned int d
 	native_apic_mem_write(APIC_ICR, cfg);
 }
 
+void default_send_UINTR_single_phys(u32 ndst, int vector)
+{
+	/* Check: Dest calculation in xapic mode? */
+	unsigned int dest = (ndst >> 8) & 0xFF;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	__default_send_IPI_dest_field(dest, vector, APIC_DEST_PHYSICAL);
+	local_irq_restore(flags);
+}
+
 void default_send_IPI_single_phys(int cpu, int vector)
 {
 	unsigned long flags;

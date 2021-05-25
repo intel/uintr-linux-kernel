@@ -31,6 +31,17 @@ static int x2apic_acpi_madt_oem_check(char *oem_id, char *oem_table_id)
 	return x2apic_enabled();
 }
 
+static void x2apic_send_UINTR(u32 ndst, int vector)
+{
+	u32 dest = ndst;
+
+	/* x2apic MSRs are special and need a special fence: */
+	weak_wrmsr_fence();
+
+	/* Check: Is this expected to be physical? */
+	__x2apic_send_IPI_dest(dest, vector, APIC_DEST_PHYSICAL);
+}
+
 static void x2apic_send_IPI(int cpu, int vector)
 {
 	u32 dest = x86_cpu_to_logical_apicid[cpu];
@@ -226,6 +237,9 @@ static struct apic apic_x2apic_cluster __ro_after_init = {
 	.send_IPI_allbutself		= x2apic_send_IPI_allbutself,
 	.send_IPI_all			= x2apic_send_IPI_all,
 	.send_IPI_self			= x2apic_send_IPI_self,
+
+	/* Check: If phys mode can be used even if apic is in flat mode? */
+	.send_UINTR			= x2apic_send_UINTR,
 
 	.inquire_remote_apic		= NULL,
 

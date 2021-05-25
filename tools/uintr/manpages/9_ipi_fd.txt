@@ -1,0 +1,83 @@
+uintr_ipi_fd(2)               System Calls Manual              uintr_ipi_fd(2)
+
+
+
+NAME
+       uintr_ipi_fd - Register a user inter-process interrupt sender
+
+
+SYNOPSIS
+        int uintr_ipi_fd(unsigned int flags);
+
+
+DESCRIPTION
+       uintr_ipi_fd()  allows  a  sender process to share its Uintr connection
+       with another process. It returns a user IPI FD - uipi_fd that abstracts
+       all the uipi_index based connections.
+
+
+       The  flags  argument is reserved for future use.  Currently, it must be
+       specified as 0.
+
+       close(2)
+             When the file descriptor is no longer required it should be
+             closed.  When all file descriptors associated with the same
+             uipi_fd object have been closed, the resources for object are
+             freed by the kernel. Freeing the uipi_fd object would not
+             result in the associated uipi_indexes to be freed.
+
+       fork(2)
+             A copy of uipi_fd is inherited by the child produced by
+             fork(2). Also all the uipi_indexes would also  get  inherited  by
+       the
+             child.
+
+       ioctl(2)      The following uipi_fd specific command is supported:
+
+            UIPI_SET_TARGET_TABLE            Sets  the  target  table  for the
+       process  with  the  specific            uipi_fd.  Sets   the   hardware
+       registers  to  allow SENDUIPI           execution based on the uipi_fd.
+       <There isn't any option to           clear the hardware registers  once
+       they have been set.>
+
+
+RETURN VALUE
+       On  success,  uintr_ipi_fd()  returns  a  new user IPI fd - uipi_fd. On
+       error, -1 is returned and errno is set to indicate  the  cause  of  the
+       error.
+
+
+ERRORS
+       ENOSYS  Underlying hardware doesn't have support for uintr(7).
+
+       EINVAL      flags is not 0.
+
+       EMFILE         The  per-process  limit  on  the  number  of  open  file
+       descriptors has been reached.
+
+       ENFILE       The system-wide limit on the total number  of  open  files
+       has been reached.
+
+       ENODEV       Could not mount (internal) anonymous inode device.
+
+       ENOMEM      The system is out of available memory to allocate uipi_fd.
+
+
+VERSIONS
+       uintr_ipi_fd() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_ipi_fd() is Linux specific.
+
+
+NOTES
+       Currently,  there  is  no  glibc  wrapper for this system call; call it
+       using syscall(2).
+
+       The user interrupt  related  system  calls  need  hardware  support  to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                               uintr_ipi_fd(2)

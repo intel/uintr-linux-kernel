@@ -1,0 +1,61 @@
+uintr_unregister_sender(2)    System Calls Manual   uintr_unregister_sender(2)
+
+
+
+NAME
+       uintr_unregister_sender  -  Unregister  a  user inter-process interrupt
+       sender
+
+
+SYNOPSIS
+        int uintr_unregister_sender(int ipi_index, unsigned int flags);
+
+
+DESCRIPTION
+       uintr_unregister_sender() unregisters  a  sender  process  based  on  a
+       ipi_index  it had previously received. If no entry is present with this
+       ipi_index the system call return an error.
+
+       The uipi_index that was allocated during uintr_register_sender(2)  will
+       be  freed.  If  a  process  tries to use a uipi_index after it has been
+       freed it would receive a SIGSEGV signal.
+
+       In case of  a  multi-threaded  process  uintr_unregister_sender()  will
+       remove  this connection from all the threads that share the same Target
+       table.
+
+       The flags argument is reserved for future use.  Currently, it  must  be
+       specified as 0.
+
+
+RETURN VALUE
+       On  success,  uintr_unregister_sender()  returns  0.  On  error,  -1 is
+       returned and errno is set to indicate the cause of the error.
+
+
+ERRORS
+       ENOSYS  Underlying hardware doesn't have support for uintr(7).
+
+       EINVAL      flags is not 0.
+
+       EINVAL      No connection has been setup for this ipi_index.
+
+
+VERSIONS
+       uintr_unregister_sender() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_unregister_sender() is Linux specific.
+
+
+NOTES
+       Currently, there is no glibc wrapper for  this  system  call;  call  it
+       using syscall(2).
+
+       The  user  interrupt  related  system  calls  need  hardware support to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                    uintr_unregister_sender(2)

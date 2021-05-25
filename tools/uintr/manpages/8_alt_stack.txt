@@ -1,0 +1,63 @@
+uintr_alt_stack(2)            System Calls Manual           uintr_alt_stack(2)
+
+
+
+NAME
+       uintr_alt_stack - wait for user interrupts
+
+
+SYNOPSIS
+        int uintr_alt_stack(void  *sp, size_t size, unsigned int flags);
+
+
+DESCRIPTION
+       uintr_alt_stack()  allows  a  thread  to  define  an alternate stack to
+       handle a User Interrupt.
+
+       sp      Base address of the stack
+
+       size      Number of bytes in the stack
+
+       flags      Flags to modify behavior
+
+       The current expectation is for a thread to register an alternate  stack
+       only after it has registered a User Interrupt handler.
+
+       Calling  uintr_alt_stack()  with  a  NULL  base address would clear the
+       alternate stack request.
+
+       uintr_unregister_handler(2)  would  also  clear  any  alternate   stack
+       request that have been made.
+
+
+RETURN VALUE
+       On  success, uintr_alt_stack() returns 0.  On error, -1 is returned and
+       errno is set to indicate the cause of the error.
+
+
+ERRORS
+       ENOSYS  Underlying hardware doesn't have support for Uintr.
+
+       EOPNOTSUPP  No interrupt handler registered.
+
+       EINVAL        flags is not 0.
+
+
+VERSIONS
+       uintr_alt_stack() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_alt_stack() is Linux specific.
+
+
+NOTES
+       Currently, there is no glibc wrapper for  this  system  call;  call  it
+       using syscall(2).
+
+       The  user  interrupt  related  system  calls  need  hardware support to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                            uintr_alt_stack(2)

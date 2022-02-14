@@ -333,6 +333,11 @@ enum {
 	IORING_REGISTER_RING_FDS		= 20,
 	IORING_UNREGISTER_RING_FDS		= 21,
 
+	/* User Interrupts based notification */
+	/* Skip a few numbers to avoid upstream clashes */
+	IORING_REGISTER_UINTR			= 31,
+	IORING_UNREGISTER_UINTR			= 32,
+
 	/* this goes last */
 	IORING_REGISTER_LAST
 };

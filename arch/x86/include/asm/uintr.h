@@ -61,7 +61,7 @@ void uintr_free(struct task_struct *task);
 void switch_uintr_prepare(struct task_struct *prev);
 void switch_uintr_return(void);
 
-int uintr_receiver_wait(void);
+int uintr_receiver_wait(ktime_t *expires);
 void uintr_wake_up_process(void);
 
 #else /* !CONFIG_X86_USER_INTERRUPTS */

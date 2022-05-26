@@ -289,12 +289,17 @@ out_fdput:
  */
 SYSCALL_DEFINE1(uintr_wait, unsigned int, flags)
 {
+	ktime_t expires;
+
 	if (!uintr_arch_enabled())
 		return -EOPNOTSUPP;
 
 	if (flags)
 		return -EINVAL;
 
-	/* TODO: Add a timeout option */
-	return uintr_receiver_wait();
+	/* TODO: Add a timeout option to the syscall */
+
+	/* For now, use a default timeout value of 100 usec */
+	expires = 100 * NSEC_PER_USEC;
+	return uintr_receiver_wait(&expires);
 }

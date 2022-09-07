@@ -30,6 +30,15 @@ struct uintr_upid_ctx {
 	refcount_t refs;
 };
 
+/* TODO: Inline the context switch related functions */
+void switch_uintr_prepare(struct task_struct *prev);
+void switch_uintr_return(void);
+
+#else /* !CONFIG_X86_USER_INTERRUPTS */
+
+static inline void switch_uintr_prepare(struct task_struct *prev) {}
+static inline void switch_uintr_return(void) {}
+
 #endif /* CONFIG_X86_USER_INTERRUPTS */
 
 #endif /* _ASM_X86_UINTR_H */

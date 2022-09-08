@@ -7,6 +7,7 @@
  */
 #define pr_fmt(fmt)    "uintr: " fmt
 
+#include <linux/anon_inodes.h>
 #include <linux/refcount.h>
 #include <linux/sched.h>
 #include <linux/sched/task.h>
@@ -22,7 +23,21 @@
 #include <asm/msr-index.h>
 #include <asm/uintr.h>
 
+#include <uapi/asm/uintr.h>
+
 #define OS_ABI_REDZONE 128
+
+struct uvecfd_ctx {
+	struct uintr_upid_ctx *upid_ctx;	/* UPID context */
+	u64 uvec;				/* Vector number */
+#if 0
+	//struct uintr_receiver_info *r_info;
+	/* The previous version used the uvec_fd for lifecycle management. This version wouldn't do that */
+	/* Protect sender_list */
+	//spinlock_t sender_lock;
+	//struct list_head sender_list;
+#endif
+};
 
 inline bool is_uintr_receiver(struct task_struct *t)
 {
@@ -86,6 +101,151 @@ static struct uintr_upid_ctx *alloc_upid(void)
 	upid_ctx->task = get_task_struct(current);
 
 	return upid_ctx;
+}
+
+/*
+ * Vectors once registered always stay registered. Need a different syscall or
+ * API to free them up
+ */
+static void do_uintr_unregister_vector(u64 uvec, struct uintr_upid_ctx *upid_ctx)
+{
+	//__clear_vector_from_upid(uvec, upid_ctx->upid);
+	//__clear_vector_from_uirr(uvec);
+	//__clear_vector_from_upid_ctx(uvec, upid_ctx);
+
+	put_upid_ref(upid_ctx);
+
+#if 0
+	pr_debug("recv: Adding task work to clear vector %llu added for task=%d\n",
+		 r_info->uvec, r_info->upid_ctx->task->pid);
+
+	init_task_work(&r_info->twork, receiver_clear_uvec);
+	ret = task_work_add(r_info->upid_ctx->task, &r_info->twork, true);
+	if (ret) {
+		pr_debug("recv: Clear vector task=%d has already exited\n",
+			 r_info->upid_ctx->task->pid);
+		kfree(r_info);
+		return;
+	}
+#endif
+}
+
+#define UINTR_MAX_UVEC_NR 64
+
+static int do_uintr_register_vector(u64 uvec, struct uintr_upid_ctx **uvecfd_upid_ctx)
+{
+	struct uintr_upid_ctx *upid_ctx;
+	struct task_struct *t = current;
+
+	/*
+	 * A vector should only be registered by a task that
+	 * has an interrupt handler registered.
+	 */
+	if (!is_uintr_receiver(t))
+		return -EINVAL;
+
+	if (uvec >= UINTR_MAX_UVEC_NR)
+		return -ENOSPC;
+
+	upid_ctx = t->thread.upid_ctx;
+
+	/* Vectors once registered always stay registered */
+	if (upid_ctx->uvec_mask & BIT_ULL(uvec))
+		pr_debug("recv: task %d uvec=%llu was already registered\n",
+			 t->pid, uvec);
+	else
+		upid_ctx->uvec_mask |= BIT_ULL(uvec);
+
+	pr_debug("recv: task %d new uvec=%llu, new mask %llx\n",
+		 t->pid, uvec, upid_ctx->uvec_mask);
+
+	/* uvecfd_upid_ctx should be passed only when an FD is being created */
+	if (uvecfd_upid_ctx)
+		*uvecfd_upid_ctx = get_upid_ref(upid_ctx);
+
+	return 0;
+}
+
+#ifdef CONFIG_PROC_FS
+static void uvecfd_show_fdinfo(struct seq_file *m, struct file *file)
+{
+	struct uvecfd_ctx *uvecfd_ctx = file->private_data;
+
+	/* Check: Should we print the receiver and sender info here? */
+	seq_printf(m, "uintr: receiver: %d vector:%llu\n",
+		   uvecfd_ctx->upid_ctx->task->pid,
+		   uvecfd_ctx->uvec);
+}
+#endif
+
+static int uvecfd_release(struct inode *inode, struct file *file)
+{
+	struct uvecfd_ctx *uvecfd_ctx = file->private_data;
+
+	pr_debug("recv: Release uvecfd for r_task %d uvec %llu\n",
+		 uvecfd_ctx->upid_ctx->task->pid,
+		 uvecfd_ctx->uvec);
+
+	do_uintr_unregister_vector(uvecfd_ctx->uvec, uvecfd_ctx->upid_ctx);
+	kfree(uvecfd_ctx);
+
+	return 0;
+}
+
+static const struct file_operations uvecfd_fops = {
+#ifdef CONFIG_PROC_FS
+	.show_fdinfo	= uvecfd_show_fdinfo,
+#endif
+	.release	= uvecfd_release,
+	.llseek		= noop_llseek,
+};
+
+/*
+ * sys_uintr_vector_fd - Create a uvec_fd for the registered interrupt vector.
+ */
+SYSCALL_DEFINE2(uintr_vector_fd, u64, vector, unsigned int, flags)
+{
+	struct uvecfd_ctx *uvecfd_ctx;
+	int uvecfd;
+	int ret;
+
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		return -ENOSYS;
+
+	if (flags)
+		return -EINVAL;
+
+	uvecfd_ctx = kzalloc(sizeof(*uvecfd_ctx), GFP_KERNEL);
+	if (!uvecfd_ctx)
+		return -ENOMEM;
+
+	uvecfd_ctx->uvec = vector;
+	ret = do_uintr_register_vector(uvecfd_ctx->uvec, &uvecfd_ctx->upid_ctx);
+	if (ret)
+		goto out_free_ctx;
+
+	/* TODO: Get user input for flags - UFD_CLOEXEC */
+	/* Check: Do we need O_NONBLOCK? */
+	uvecfd = anon_inode_getfd("[uvecfd]", &uvecfd_fops, uvecfd_ctx,
+				  O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+
+	if (uvecfd < 0) {
+		ret = uvecfd;
+		goto out_free_uvec;
+	}
+
+	pr_debug("recv: Alloc vector success uvecfd %d uvec %llu for task=%d\n",
+		 uvecfd, uvecfd_ctx->uvec, current->pid);
+
+	return uvecfd;
+
+out_free_uvec:
+	do_uintr_unregister_vector(uvecfd_ctx->uvec, uvecfd_ctx->upid_ctx);
+out_free_ctx:
+	kfree(uvecfd_ctx);
+	pr_debug("recv: Alloc vector failed for task=%d ret %d\n",
+		 current->pid, ret);
+	return ret;
 }
 
 static int do_uintr_unregister_handler(void)

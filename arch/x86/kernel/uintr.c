@@ -1112,6 +1112,127 @@ SYSCALL_DEFINE3(uintr_alt_stack, void __user *, sp, size_t, size, unsigned int, 
 	return ret;
 }
 
+#if 0
+/* For notify receiver */
+/* TODO: Find a more efficient way rather than iterating over each cpu */
+static int convert_apicid_to_cpu(int apic_id)
+{
+	int i;
+
+	for_each_possible_cpu(i) {
+		if (per_cpu(x86_cpu_to_apicid, i) == apic_id)
+			return i;
+	}
+	return -1;
+}
+
+static inline int ndst_to_cpu(u32 ndst)
+{
+	int apic_id;
+	int cpu;
+
+	if (!x2apic_enabled())
+		apic_id = (ndst >> 8) & 0xFF;
+	else
+		apic_id = ndst;
+
+	cpu = convert_apicid_to_cpu(apic_id);
+
+	WARN_ON_ONCE(cpu == -1);
+
+	pr_debug("uintr: converted ndst %x to cpu %d\n", ndst, cpu);
+	return cpu;
+}
+#endif
+
+static int uintr_notify_receiver(u64 uvec, struct uintr_upid_ctx *upid_ctx)
+{
+	//struct uintr_upid_ctx *upid_ctx = upid_ctx;
+	struct uintr_upid *upid = upid_ctx->upid;
+
+	set_bit((unsigned long)uvec, (unsigned long *)&upid->puir);
+
+	pr_debug("notify: Posted vector %llu to task %d\n",
+		 uvec, upid_ctx->task->pid);
+
+	pr_debug("notify: puir=%llx SN %x ON %x NDST %x NV %x",
+		 upid->puir, test_bit(UINTR_UPID_STATUS_SN, (unsigned long *)&upid->nc.status),
+		 test_bit(UINTR_UPID_STATUS_ON, (unsigned long *)&upid->nc.status),
+		 upid->nc.ndst, upid->nc.nv);
+
+	/* TODO: Use cmpxchg for UPID since we are doing read-modify-write */
+	if (!test_bit(UINTR_UPID_STATUS_SN, (unsigned long *)&upid->nc.status) &&
+	    !test_and_set_bit(UINTR_UPID_STATUS_ON, (unsigned long *)&upid->nc.status)) {
+
+		pr_debug("notify: Sending IPI to NDST %x with NV %x\n",
+			 upid->nc.ndst, upid->nc.nv);
+
+		/*
+		 * Confirm: Which method is more efficient?
+		 *	1. Directly program the APIC as done below
+		 *	2. Convert ndst to cpu and then use send_IPI()
+		 */
+		apic->send_UINTR(upid->nc.ndst, upid->nc.nv);
+
+	} else {
+		pr_debug("notify: Skip sending IPI to task %d\n",
+			 upid_ctx->task->pid);
+	}
+
+	return 0;
+}
+
+/**
+ * uintr_notify - Notify a user interrupt receiver.
+ * @uvec_f: [in] File pertaining to the uvec_fd.
+ *
+ * Returns <tbd>
+ */
+int uintr_notify(struct file *uvec_f)
+{
+	struct uvecfd_ctx *uvecfd_ctx;
+
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		return -EINVAL;
+
+	if (uvec_f->f_op != &uvecfd_fops)
+		return -EINVAL;
+
+	uvecfd_ctx = (struct uvecfd_ctx *)uvec_f->private_data;
+
+	return uintr_notify_receiver(uvecfd_ctx->uvec, uvecfd_ctx->upid_ctx);
+}
+EXPORT_SYMBOL_GPL(uintr_notify);
+
+/**
+ * uvecfd_fget - Acquire a reference of an uvecfd file descriptor.
+ * @fd: [in] uvecfd file descriptor.
+ *
+ * Returns a pointer to the uvecfd file structure in case of success, or the
+ * following error pointer:
+ *
+ * -EBADF    : Invalid @fd file descriptor.
+ * -EINVAL   : The @fd file descriptor is not an uvecfd file.
+ */
+struct file *uvecfd_fget(int fd)
+{
+	struct file *file;
+
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		return ERR_PTR(-EINVAL);
+
+	file = fget(fd);
+	if (!file)
+		return ERR_PTR(-EBADF);
+	if (file->f_op != &uvecfd_fops) {
+		fput(file);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return file;
+}
+EXPORT_SYMBOL_GPL(uvecfd_fget);
+
 static int uintr_receiver_wait(ktime_t *expires)
 {
 	struct task_struct *tsk = current;

@@ -26,6 +26,9 @@ int x2apic_phys_pkg_id(int initial_apicid, int index_msb);
 void x2apic_send_IPI_self(int vector);
 void __x2apic_send_IPI_shorthand(int vector, u32 which);
 
+/* UINTR */
+void default_send_UINTR_single_phys(u32 ndst, int vector);
+
 /* IPI */
 
 DECLARE_STATIC_KEY_FALSE(apic_use_ipi_shorthand);

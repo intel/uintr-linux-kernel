@@ -81,6 +81,10 @@ void uintr_wake_up_process(void);
 bool is_uintr_receiver(struct task_struct *t);
 bool is_uintr_ongoing(struct task_struct *t);
 
+/* UINTR kernel notification related functions */
+struct file *uvecfd_fget(int uvec_fd);
+int uintr_notify(struct file *uvec_f);
+
 /* TODO: Inline the context switch related functions */
 void switch_uintr_prepare(struct task_struct *prev);
 void switch_uintr_return(void);
@@ -94,6 +98,10 @@ static inline void uintr_destroy_uitt_ctx(struct mm_struct *mm) {}
 
 static inline bool is_uintr_receiver(struct task_struct *t) { return false; }
 static inline bool is_uintr_ongoing(struct task_struct *t) { return false; }
+
+/* EXPORT_SYMBOL functions */
+static inline int uintr_notify(struct file *uvec_f) { return -EINVAL; }
+static inline struct file *uvecfd_fget(int uvec_fd) { return ERR_PTR(-EINVAL); }
 
 static inline void switch_uintr_prepare(struct task_struct *prev) {}
 static inline void switch_uintr_return(void) {}

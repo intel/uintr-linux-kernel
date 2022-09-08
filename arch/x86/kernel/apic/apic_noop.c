@@ -123,6 +123,8 @@ struct apic apic_noop __ro_after_init = {
 	.send_IPI_all			= noop_send_IPI_all,
 	.send_IPI_self			= noop_send_IPI_self,
 
+	.send_UINTR			= NULL,
+
 	.wakeup_secondary_cpu		= noop_wakeup_secondary_cpu,
 
 	.inquire_remote_apic		= NULL,

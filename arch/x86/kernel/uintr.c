@@ -8,6 +8,8 @@
 #define pr_fmt(fmt)    "uintr: " fmt
 
 #include <linux/anon_inodes.h>
+#include <linux/fdtable.h>
+#include <linux/hrtimer.h>
 #include <linux/refcount.h>
 #include <linux/sched.h>
 #include <linux/sched/task.h>
@@ -1108,6 +1110,71 @@ SYSCALL_DEFINE3(uintr_alt_stack, void __user *, sp, size_t, size, unsigned int, 
 		 current->pid, (u64)sp, size, ret);
 
 	return ret;
+}
+
+static int uintr_receiver_wait(ktime_t *expires)
+{
+	struct task_struct *tsk = current;
+	struct hrtimer_sleeper t;
+
+	if (!is_uintr_receiver(tsk))
+		return -EOPNOTSUPP;
+
+	pr_debug("uintr: Pause for uintr for task %d\n", tsk->pid);
+
+	// uintr_switch_to_kernel_interrupt(tsk);
+
+	hrtimer_init_sleeper_on_stack(&t, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	hrtimer_set_expires_range_ns(&t.timer, *expires, 0);
+	hrtimer_sleeper_start_expires(&t, HRTIMER_MODE_REL);
+
+	set_current_state(TASK_INTERRUPTIBLE);
+
+	if (t.task)
+		schedule();
+
+	hrtimer_cancel(&t.timer);
+	destroy_hrtimer_on_stack(&t.timer);
+
+	//if (!t.task)
+	//	uintr_remove_task_wait(tsk);
+
+	__set_current_state(TASK_RUNNING);
+
+	pr_debug("recv: Returned from schedule task=%d\n",
+		 current->pid);
+
+	return !t.task ? 0 : -EINTR;
+}
+
+/* For now, use a max value of 1000 seconds */
+#define UINTR_WAIT_MAX_USEC	1000000000
+
+/*
+ * sys_uintr_wait - Wait for a user interrupt for the specified time
+ */
+SYSCALL_DEFINE2(uintr_wait, u64, usec, unsigned int, flags)
+{
+	ktime_t expires;
+
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		return -ENOSYS;
+
+	if (!IS_ENABLED(CONFIG_X86_UINTR_BLOCKING))
+		return -ENOSYS;
+
+	if (flags)
+		return -EINVAL;
+
+	/* Check: Do we need an option for waiting indefinitely */
+	if (usec > UINTR_WAIT_MAX_USEC)
+		return -EINVAL;
+
+	if (usec == 0)
+		return 0;
+
+	expires = usec * NSEC_PER_USEC;
+	return uintr_receiver_wait(&expires);
 }
 
 static void uintr_switch_to_kernel_interrupt(struct uintr_upid_ctx *upid_ctx)

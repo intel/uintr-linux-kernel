@@ -1025,6 +1025,60 @@ SYSCALL_DEFINE1(uintr_unregister_handler, unsigned int, flags)
 	return ret;
 }
 
+static int do_uintr_alt_stack(void __user *sp, size_t size)
+{
+	struct task_struct *t = current;
+	void *xstate;
+	u64 msr64;
+
+	/*
+	 * For now, alternate stack should only be registered by a task that
+	 * has an interrupt handler already registered.
+	 *
+	 * Unregistering the interrupt handler will also clear the alternate stack.
+	 */
+	if (!is_uintr_receiver(t))
+		return -EOPNOTSUPP;
+
+	/* Check: if the stack size needs to be aligned? */
+
+	if (sp)
+		msr64 = (u64)sp | 1; //set alt stack
+	else
+		msr64 = OS_ABI_REDZONE; //program OS_ABI_REDZONE
+
+	xstate = start_update_xsave_msrs(XFEATURE_UINTR);
+	xsave_wrmsrl(xstate, MSR_IA32_UINTR_STACKADJUST, msr64);
+	end_update_xsave_msrs();
+
+	return 0;
+}
+
+/*
+ * sys_uintr_alt_stack - Set an alternate stack for UINTR handling
+ */
+SYSCALL_DEFINE3(uintr_alt_stack, void __user *, sp, size_t, size, unsigned int, flags)
+{
+	int ret;
+
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		return -ENOSYS;
+
+	if (flags)
+		return -EINVAL;
+
+	/* Check: Would it be helpful to have a common stack struct between signals and UINTR */
+
+	/* TODO: Validate address and size */
+
+	ret = do_uintr_alt_stack(sp, size);
+
+	pr_debug("recv: atl stack task=%d sp: %llx size: %ld ret: %d\n",
+		 current->pid, (u64)sp, size, ret);
+
+	return ret;
+}
+
 /* Suppress notifications since this task is being context switched out */
 void switch_uintr_prepare(struct task_struct *prev)
 {

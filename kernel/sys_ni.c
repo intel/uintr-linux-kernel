@@ -360,6 +360,17 @@ COND_SYSCALL(pkey_free);
 /* memfd_secret */
 COND_SYSCALL(memfd_secret);
 
+/* user interrupts */
+COND_SYSCALL(uintr_register_handler);
+COND_SYSCALL(uintr_unregister_handler);
+COND_SYSCALL(uintr_vector_fd);
+COND_SYSCALL(uintr_register_sender);
+COND_SYSCALL(uintr_unregister_sender);
+COND_SYSCALL(uintr_wait);
+COND_SYSCALL(uintr_register_self);
+COND_SYSCALL(uintr_alt_stack);
+COND_SYSCALL(uintr_ipi_fd);
+
 /*
  * Architecture specific weak syscall entries.
  */

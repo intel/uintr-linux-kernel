@@ -202,6 +202,15 @@ cat << EOF
 #define __IGNORE__sysctl
 #define __IGNORE_arch_prctl
 #define __IGNORE_nfsservctl
+#define __IGNORE_uintr_register_handler
+#define __IGNORE_uintr_unregister_handler
+#define __IGNORE_uintr_vector_fd
+#define __IGNORE_uintr_register_sender
+#define __IGNORE_uintr_unregister_sender
+#define __IGNORE_uintr_wait
+#define __IGNORE_uintr_register_self
+#define __IGNORE_uintr_alt_stack
+#define __IGNORE_uintr_ipi_fd
 
 /* ... including the "new" 32-bit uid syscalls */
 #define __IGNORE_lchown32

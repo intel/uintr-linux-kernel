@@ -259,7 +259,7 @@ static inline void io_req_complete_defer(struct io_kiocb *req)
 
 static inline void io_commit_cqring_flush(struct io_ring_ctx *ctx)
 {
-	if (unlikely(ctx->off_timeout_used || ctx->drain_active || ctx->has_evfd))
+	if (unlikely(ctx->off_timeout_used || ctx->drain_active || ctx->has_evfd || ctx->cq_uintr_f))
 		__io_commit_cqring_flush(ctx);
 }
 

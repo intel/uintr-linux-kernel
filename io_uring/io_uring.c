@@ -73,6 +73,10 @@
 #include <linux/audit.h>
 #include <linux/security.h>
 
+#ifdef CONFIG_X86_USER_INTERRUPTS
+#include <asm/uintr.h>
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/io_uring.h>
 
@@ -532,6 +536,11 @@ void __io_commit_cqring_flush(struct io_ring_ctx *ctx)
 	}
 	if (ctx->has_evfd)
 		io_eventfd_signal(ctx);
+
+#ifdef CONFIG_X86_USER_INTERRUPTS
+	if (ctx->cq_uintr_f)
+		uintr_notify(ctx->cq_uintr_f);
+#endif
 }
 
 static inline void io_cqring_ev_posted(struct io_ring_ctx *ctx)
@@ -2393,6 +2402,44 @@ static int io_eventfd_unregister(struct io_ring_ctx *ctx)
 	return -ENXIO;
 }
 
+#ifdef CONFIG_X86_USER_INTERRUPTS
+static int io_uintr_register(struct io_ring_ctx *ctx, void __user *arg)
+{
+	__s32 __user *fds = arg;
+	int fd;
+
+	if (ctx->cq_uintr_f)
+		return -EBUSY;
+
+	if (copy_from_user(&fd, fds, sizeof(*fds)))
+		return -EFAULT;
+
+	ctx->cq_uintr_f = uvecfd_fget(fd);
+	if (IS_ERR(ctx->cq_uintr_f)) {
+		int ret = PTR_ERR(ctx->cq_uintr_f);
+
+		ctx->cq_uintr_f = NULL;
+		return ret;
+	}
+
+	return 0;
+}
+
+static int io_uintr_unregister(struct io_ring_ctx *ctx)
+{
+	if (ctx->cq_uintr_f) {
+		fput(ctx->cq_uintr_f);
+		ctx->cq_uintr_f = NULL;
+		return 0;
+	}
+
+	return -ENXIO;
+}
+#else
+static int io_uintr_register(struct io_ring_ctx *ctx, void __user *arg) { return -EINVAL; }
+static int io_uintr_unregister(struct io_ring_ctx *ctx) { return -EINVAL; }
+#endif
+
 static void io_req_caches_free(struct io_ring_ctx *ctx)
 {
 	struct io_submit_state *state = &ctx->submit_state;
@@ -2437,6 +2484,7 @@ static __cold void io_ring_ctx_free(struct io_ring_ctx *ctx)
 	if (ctx->rings)
 		__io_cqring_overflow_flush(ctx, true);
 	io_eventfd_unregister(ctx);
+	io_uintr_unregister(ctx);
 	io_alloc_cache_free(&ctx->apoll_cache, io_apoll_cache_free);
 	io_alloc_cache_free(&ctx->netmsg_cache, io_netmsg_cache_free);
 	mutex_unlock(&ctx->uring_lock);
@@ -3759,6 +3807,18 @@ static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 		if (arg || nr_args)
 			break;
 		ret = io_eventfd_unregister(ctx);
+		break;
+	case IORING_REGISTER_UINTR:
+		ret = -EINVAL;
+		if (nr_args != 1)
+			break;
+		ret = io_uintr_register(ctx, arg);
+		break;
+	case IORING_UNREGISTER_UINTR:
+		ret = -EINVAL;
+		if (arg || nr_args)
+			break;
+		ret = io_uintr_unregister(ctx);
 		break;
 	case IORING_REGISTER_PROBE:
 		ret = -EINVAL;

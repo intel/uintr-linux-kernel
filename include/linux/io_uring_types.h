@@ -318,6 +318,9 @@ struct io_ring_ctx {
 	struct io_restriction		restrictions;
 	struct task_struct		*submitter_task;
 
+	/* User Interrupts file descriptor */
+	struct file			*cq_uintr_f;
+
 	/* slow path rsrc auxilary data, used by update/register */
 	struct io_rsrc_node		*rsrc_backup_node;
 	struct io_mapped_ubuf		*dummy_ubuf;

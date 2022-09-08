@@ -353,3 +353,56 @@ void switch_uintr_return(void)
 	if (READ_ONCE(upid->puir))
 		apic->send_IPI_self(UINTR_NOTIFICATION_VECTOR);
 }
+
+/*
+ * This should only be called from exit_thread().
+ * exit_thread() can happen in current context when the current thread is
+ * exiting or it can happen for a new thread that is being created.
+ * For new threads is_uintr_task() will fail.
+ */
+void uintr_free(struct task_struct *t)
+{
+	struct uintr_upid_ctx *upid_ctx;
+	void *xstate;
+
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		return;
+
+	upid_ctx = t->thread.upid_ctx;
+	if (is_uintr_receiver(t)) {
+		xstate = start_update_xsave_msrs(XFEATURE_UINTR);
+
+		xsave_wrmsrl(xstate, MSR_IA32_UINTR_MISC, 0);
+		xsave_wrmsrl(xstate, MSR_IA32_UINTR_TT, 0);
+		xsave_wrmsrl(xstate, MSR_IA32_UINTR_PD, 0);
+		xsave_wrmsrl(xstate, MSR_IA32_UINTR_RR, 0);
+		xsave_wrmsrl(xstate, MSR_IA32_UINTR_STACKADJUST, 0);
+		xsave_wrmsrl(xstate, MSR_IA32_UINTR_HANDLER, 0);
+
+		/* If upid is active, upid_ctx will be valid */
+		if (is_uintr_receiver(t)) {
+			/*
+			 * Suppress notifications so that no further interrupts are
+			 * generated based on this UPID.
+			 */
+			set_bit(UINTR_UPID_STATUS_SN, (unsigned long *)&upid_ctx->upid->nc.status);
+			put_upid_ref(upid_ctx);
+		}
+
+		t->thread.upid_activated = false;
+
+		end_update_xsave_msrs();
+	}
+
+	if (upid_ctx) {
+		put_upid_ref(t->thread.upid_ctx);
+		/*
+		 * This might not be needed since the thread is exiting. Have
+		 * it anyways to be safe.
+		 */
+		t->thread.upid_ctx = NULL;
+	}
+
+	//if (WARN_ON_ONCE(t != current))
+	//	return;
+}

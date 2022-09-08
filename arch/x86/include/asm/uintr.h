@@ -34,10 +34,14 @@ struct uintr_upid_ctx {
 void switch_uintr_prepare(struct task_struct *prev);
 void switch_uintr_return(void);
 
+void uintr_free(struct task_struct *task);
+
 #else /* !CONFIG_X86_USER_INTERRUPTS */
 
 static inline void switch_uintr_prepare(struct task_struct *prev) {}
 static inline void switch_uintr_return(void) {}
+
+static inline void uintr_free(struct task_struct *task) {}
 
 #endif /* CONFIG_X86_USER_INTERRUPTS */
 

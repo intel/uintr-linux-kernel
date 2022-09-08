@@ -10,4 +10,10 @@
 #define UINTR_DISABLE		_IO(UINTR_BASE, 1)
 #define UINTR_NOTIFY		_IO(UINTR_BASE, 2)
 
+/* uipi_fd IOCTLs */
+#define UINTR_UIPI_FD_BASE		'u'
+#define UIPI_SET_TARGET_TABLE		_IO(UINTR_UIPI_FD_BASE, 0)
+/* Not supported for now. UITT clearing is an involved process */
+#define UIPI_CLEAR_TARGET_TABLE		_IO(UINTR_UIPI_FD_BASE, 1)
+
 #endif

@@ -98,6 +98,12 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 	dst->thread.upid_ctx = NULL;
 
 	dst->thread.upid_activated = false;
+
+	/*
+	 * User Interrupt sender state is shared across tasks of the same mm.
+	 * However, the UITT is activated on-demand
+	 */
+	dst->thread.uitt_activated = false;
 #endif
 
 	/* Drop the copied pointer to current's fpstate */

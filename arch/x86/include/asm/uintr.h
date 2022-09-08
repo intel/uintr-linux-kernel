@@ -28,7 +28,44 @@ struct uintr_upid_ctx {
 	struct uintr_upid *upid;
 	/* TODO: Change to kernel kref api */
 	refcount_t refs;
+	bool receiver_active;		/* Flag for UPID being mapped to a receiver */
 };
+
+/*
+ * Each UITT entry is 16 bytes in size.
+ * Current UITT table size is set as 4KB (256 * 16 bytes)
+ */
+#define UINTR_MAX_UITT_NR 256
+
+/* User Interrupt Target Table Entry (UITTE) */
+struct uintr_uitt_entry {
+	u8	valid;			/* bit 0: valid, bit 1-7: reserved */
+	u8	user_vec;
+	u8	reserved[6];
+	u64	target_upid_addr;
+} __packed __aligned(16);
+
+/* TODO: Remove uitt from struct names */
+struct uintr_uitt_ctx {
+	struct uintr_uitt_entry *uitt;
+	/* Protect UITT */
+	struct mutex uitt_lock;
+	/* TODO: Change to kernel kref api */
+	refcount_t refs;
+	/* track active uitt entries per bit */
+	u64 uitt_mask[BITS_TO_U64(UINTR_MAX_UITT_NR)];
+	/* TODO: Might be useful to use xarray over here as the MAX size increases */
+	struct uintr_upid_ctx *r_upid_ctx[UINTR_MAX_UITT_NR];
+};
+
+/* User IPI sender related functions */
+struct uintr_uitt_ctx *get_uitt_ref(struct uintr_uitt_ctx *uitt_ctx);
+void put_uitt_ref(struct uintr_uitt_ctx *uitt_ctx);
+void uintr_destroy_uitt_ctx(struct mm_struct *mm);
+
+bool is_uintr_sender(struct task_struct *t);
+void uintr_set_sender_msrs(struct task_struct *t);
+bool uintr_check_uitte_valid(struct uintr_uitt_ctx *uitt_ctx, unsigned int entry);
 
 /* TODO: Inline the context switch related functions */
 void switch_uintr_prepare(struct task_struct *prev);
@@ -37,6 +74,8 @@ void switch_uintr_return(void);
 void uintr_free(struct task_struct *task);
 
 #else /* !CONFIG_X86_USER_INTERRUPTS */
+
+static inline void uintr_destroy_uitt_ctx(struct mm_struct *mm) {}
 
 static inline void switch_uintr_prepare(struct task_struct *prev) {}
 static inline void switch_uintr_return(void) {}

@@ -526,6 +526,7 @@ struct thread_struct {
 	/* User Interrupt state*/
 
 	/* Signifies whether the MSRs for that thread are active */
+	unsigned int		uitt_activated:1;
 	unsigned int		upid_activated:1;
 
 	/* Pointer to the UPID context for the task */

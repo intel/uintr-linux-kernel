@@ -12,6 +12,7 @@
 #include <asm/tlbflush.h>
 #include <asm/paravirt.h>
 #include <asm/debugreg.h>
+#include <asm/uintr.h>
 
 extern atomic64_t last_mm_ctx_id;
 
@@ -123,6 +124,9 @@ static inline int init_new_context(struct task_struct *tsk,
 static inline void destroy_context(struct mm_struct *mm)
 {
 	destroy_context_ldt(mm);
+
+	if (cpu_feature_enabled(X86_FEATURE_UINTR))
+		uintr_destroy_uitt_ctx(mm);
 }
 
 extern void switch_mm(struct mm_struct *prev, struct mm_struct *next,
@@ -164,10 +168,27 @@ static inline void arch_dup_pkeys(struct mm_struct *oldmm,
 #endif
 }
 
+static inline void uitt_dup_context(struct mm_struct *oldmm,
+				    struct mm_struct *mm)
+{
+/* TODO: Remove this ugly ifdef */
+#ifdef CONFIG_X86_USER_INTERRUPTS
+
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		return;
+
+	/* Inherit UINTR state. New additions to UITT will be accessible by both processes */
+	/* Check if this needs a lock */
+	if (oldmm->context.uitt_ctx)
+		mm->context.uitt_ctx = get_uitt_ref(oldmm->context.uitt_ctx);
+#endif
+}
+
 static inline int arch_dup_mmap(struct mm_struct *oldmm, struct mm_struct *mm)
 {
 	arch_dup_pkeys(oldmm, mm);
 	paravirt_arch_dup_mmap(oldmm, mm);
+	uitt_dup_context(oldmm, mm);
 	return ldt_dup_context(oldmm, mm);
 }
 

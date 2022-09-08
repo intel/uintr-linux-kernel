@@ -36,6 +36,7 @@
 #include <asm/mce.h>
 #include <asm/sighandling.h>
 #include <asm/vm86.h>
+#include <asm/uintr.h>
 
 #ifdef CONFIG_X86_64
 #include <linux/compat.h>
@@ -870,6 +871,31 @@ void arch_do_signal_or_restart(struct pt_regs *regs)
 		/* Whee! Actually deliver the signal.  */
 		handle_signal(&ksig, regs);
 		return;
+	}
+
+	/* TODO: Improve common code */
+	/* Check if a User Interrupt needs to be delivered. Skip restarting in that case */
+	if (IS_ENABLED(CONFIG_X86_UINTR_BLOCKING) &&
+	    cpu_feature_enabled(X86_FEATURE_UINTR) &&
+	    is_uintr_receiver(current) &&
+	    is_uintr_ongoing(current)) {
+		if (syscall_get_nr(current, regs) != -1) {
+			switch (syscall_get_error(current, regs)) {
+			case -ERESTARTNOHAND:
+			case -ERESTARTSYS:
+			case -ERESTARTNOINTR:
+			case -ERESTART_RESTARTBLOCK:
+				regs->ax = -EINTR;
+				break;
+			}
+
+			/*
+			 * Since there's no signal to deliver, just put the
+			 * saved sigmask back.
+			 */
+			restore_saved_sigmask();
+			return;
+		}
 	}
 
 	/* Did we come from a system call? */

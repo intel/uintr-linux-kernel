@@ -22,6 +22,7 @@
 #include <asm/desc.h>
 #include <asm/traps.h>
 #include <asm/thermal.h>
+#include <asm/uintr.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/irq_vectors.h>
@@ -364,6 +365,21 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_uintr_spurious_interrupt)
 	/* TODO: Add entry-exit tracepoints */
 	ack_APIC_irq();
 	inc_irq_stat(uintr_spurious_count);
+
+	/*
+	 * Typically, we only expect wake-ups to happen using the kernel
+	 * notification. However, there might be a possibility that a process
+	 * blocked while a notification with UINTR_NOTIFICATION_VECTOR was
+	 * in-progress. This could result in a spurious interrupt that needs to
+	 * wake up the process to avoid missing a notification.
+	 *
+	 * There might be an option to detect this wake notification earlier by
+	 * checking the ON bit right before letting the task block. That needs
+	 * further investigation. For now, leave it here for paranoid reasons.
+	 */
+	if (IS_ENABLED(CONFIG_X86_UINTR_BLOCKING))
+		uintr_wake_up_process();
+
 }
 
 /*
@@ -374,6 +390,12 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_uintr_kernel_notification)
 	/* TODO: Add entry-exit tracepoints */
 	ack_APIC_irq();
 	inc_irq_stat(uintr_kernel_notifications);
+
+	pr_debug_ratelimited("uintr: Kernel notification interrupt on %d\n",
+			     smp_processor_id());
+
+	if (IS_ENABLED(CONFIG_X86_UINTR_BLOCKING))
+		uintr_wake_up_process();
 }
 #endif
 

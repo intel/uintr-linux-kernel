@@ -20,6 +20,8 @@ struct uintr_upid {
 /* UPID Notification control status bits */
 #define UINTR_UPID_STATUS_ON		0x0	/* Outstanding notification */
 #define UINTR_UPID_STATUS_SN		0x1	/* Suppressed notification */
+#define UINTR_UPID_STATUS_BLKD		0x7	/* Blocked waiting for kernel */
+
 
 struct uintr_upid_ctx {
 	struct list_head node;
@@ -29,7 +31,14 @@ struct uintr_upid_ctx {
 	/* TODO: Change to kernel kref api */
 	refcount_t refs;
 	bool receiver_active;		/* Flag for UPID being mapped to a receiver */
+	bool waiting;			/* Flag for UPID blocked in the kernel */
+	unsigned int waiting_cost;	/* Flags for who pays the waiting cost */
 };
+
+/* UPID waiting cost */
+#define UPID_WAITING_COST_NONE		0x0
+#define UPID_WAITING_COST_RECEIVER	0x1
+#define UPID_WAITING_COST_SENDER	0x2
 
 /*
  * Each UITT entry is 16 bytes in size.
@@ -67,9 +76,15 @@ bool is_uintr_sender(struct task_struct *t);
 void uintr_set_sender_msrs(struct task_struct *t);
 bool uintr_check_uitte_valid(struct uintr_uitt_ctx *uitt_ctx, unsigned int entry);
 
+/* Uintr blocking related function */
+void uintr_wake_up_process(void);
+bool is_uintr_receiver(struct task_struct *t);
+bool is_uintr_ongoing(struct task_struct *t);
+
 /* TODO: Inline the context switch related functions */
 void switch_uintr_prepare(struct task_struct *prev);
 void switch_uintr_return(void);
+void switch_uintr_finish(struct task_struct *next);
 
 void uintr_free(struct task_struct *task);
 
@@ -77,8 +92,12 @@ void uintr_free(struct task_struct *task);
 
 static inline void uintr_destroy_uitt_ctx(struct mm_struct *mm) {}
 
+static inline bool is_uintr_receiver(struct task_struct *t) { return false; }
+static inline bool is_uintr_ongoing(struct task_struct *t) { return false; }
+
 static inline void switch_uintr_prepare(struct task_struct *prev) {}
 static inline void switch_uintr_return(void) {}
+static inline void switch_uintr_finish(struct task_struct *next) {}
 
 static inline void uintr_free(struct task_struct *task) {}
 

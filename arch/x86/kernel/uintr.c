@@ -39,9 +39,22 @@ struct uvecfd_ctx {
 #endif
 };
 
+/* Definitions to make the compiler happy */
+static void uintr_remove_task_wait(struct task_struct *task);
+
+/* TODO: To remove the global lock, move to a per-cpu wait list. */
+static DEFINE_SPINLOCK(uintr_wait_lock);
+static struct list_head uintr_wait_list = LIST_HEAD_INIT(uintr_wait_list);
+
 inline bool is_uintr_receiver(struct task_struct *t)
 {
 	return !!t->thread.upid_activated;
+}
+
+inline bool is_uintr_ongoing(struct task_struct *t)
+{
+	return test_bit(UINTR_UPID_STATUS_ON,
+			(unsigned long *)&t->thread.upid_ctx->upid->nc.status);
 }
 
 inline bool is_uintr_sender(struct task_struct *t)
@@ -110,6 +123,7 @@ static struct uintr_upid_ctx *alloc_upid(void)
 	refcount_set(&upid_ctx->refs, 1);
 	upid_ctx->task = get_task_struct(current);
 	upid_ctx->receiver_active = true;
+	upid_ctx->waiting = false;
 
 	return upid_ctx;
 }
@@ -834,6 +848,11 @@ SYSCALL_DEFINE2(uintr_register_self, u64, vector, unsigned int, flags)
 	return ret;
 }
 
+static inline void set_uintr_waiting(struct task_struct *t)
+{
+	t->thread.upid_ctx->waiting = true;
+}
+
 static int do_uintr_unregister_handler(void)
 {
 	struct task_struct *t = current;
@@ -875,6 +894,8 @@ static int do_uintr_unregister_handler(void)
 
 	/* Release reference since the removed it from the MSR. */
 	put_upid_ref(upid_ctx);
+
+	uintr_remove_task_wait(t);
 
 	end_update_xsave_msrs();
 
@@ -970,6 +991,13 @@ static int do_uintr_register_handler(u64 handler, unsigned int flags)
 
 	end_update_xsave_msrs();
 
+	if (flags & UINTR_HANDLER_FLAG_WAITING_ANY) {
+		if (flags & UINTR_HANDLER_FLAG_WAITING_RECEIVER)
+			upid_ctx->waiting_cost = UPID_WAITING_COST_RECEIVER;
+		else
+			upid_ctx->waiting_cost = UPID_WAITING_COST_SENDER;
+	}
+
 	pr_debug("recv: task=%d register handler=%llx upid %px flags=%d\n",
 		 t->pid, handler, upid, flags);
 
@@ -989,7 +1017,10 @@ SYSCALL_DEFINE2(uintr_register_handler, u64 __user *, handler, unsigned int, fla
 	pr_debug("recv: requesting register handler task=%d flags %d handler %lx\n",
 		 current->pid, flags, (unsigned long)handler);
 
-	if (flags)
+	if (flags & ~UINTR_HANDLER_FLAG_WAITING_ANY)
+		return -EINVAL;
+
+	if (flags && !IS_ENABLED(CONFIG_X86_UINTR_BLOCKING))
 		return -EINVAL;
 
 	/* TODO: Validate the handler address */
@@ -1079,6 +1110,33 @@ SYSCALL_DEFINE3(uintr_alt_stack, void __user *, sp, size_t, size, unsigned int, 
 	return ret;
 }
 
+static void uintr_switch_to_kernel_interrupt(struct uintr_upid_ctx *upid_ctx)
+{
+	unsigned long flags;
+
+	upid_ctx->upid->nc.nv = UINTR_KERNEL_VECTOR;
+	upid_ctx->waiting = true;
+	spin_lock_irqsave(&uintr_wait_lock, flags);
+	list_add(&upid_ctx->node, &uintr_wait_list);
+	spin_unlock_irqrestore(&uintr_wait_lock, flags);
+}
+
+static void uintr_set_blocked_upid_bit(struct uintr_upid_ctx *upid_ctx)
+{
+	set_bit(UINTR_UPID_STATUS_BLKD, (unsigned long *)&upid_ctx->upid->nc.status);
+	upid_ctx->waiting = true;
+}
+
+static inline bool is_uintr_waiting_cost_sender(struct task_struct *t)
+{
+	return (t->thread.upid_ctx->waiting_cost == UPID_WAITING_COST_SENDER);
+}
+
+static inline bool is_uintr_waiting_enabled(struct task_struct *t)
+{
+	return (t->thread.upid_ctx->waiting_cost != UPID_WAITING_COST_NONE);
+}
+
 /* Suppress notifications since this task is being context switched out */
 void switch_uintr_prepare(struct task_struct *prev)
 {
@@ -1089,6 +1147,22 @@ void switch_uintr_prepare(struct task_struct *prev)
 
 	/* Check if UIF should be considered here. Do we want to wait for interrupts if UIF is 0? */
 	upid_ctx = prev->thread.upid_ctx;
+
+	/*
+	 * A task being interruptible is a dynamic state. Need synchronization
+	 * in schedule() along with singal_pending_state() to avoid blocking if
+	 * a UINTR is pending
+	 */
+	if (IS_ENABLED(CONFIG_X86_UINTR_BLOCKING) &&
+	    is_uintr_waiting_enabled(prev) &&
+	    task_is_interruptible(prev)) {
+		if (!is_uintr_waiting_cost_sender(prev)) {
+			uintr_switch_to_kernel_interrupt(upid_ctx);
+			return;
+		}
+
+		uintr_set_blocked_upid_bit(upid_ctx);
+	}
 
 	set_bit(UINTR_UPID_STATUS_SN, (unsigned long *)&upid_ctx->upid->nc.status);
 }
@@ -1154,6 +1228,53 @@ void switch_uintr_return(void)
 		apic->send_IPI_self(UINTR_NOTIFICATION_VECTOR);
 }
 
+/* Check does SN need to be set here */
+/* Called when task is unregistering/exiting or timer expired */
+static void uintr_remove_task_wait(struct task_struct *task)
+{
+	struct uintr_upid_ctx *upid_ctx, *tmp;
+	unsigned long flags;
+
+	if (!IS_ENABLED(CONFIG_X86_UINTR_BLOCKING))
+		return;
+
+	spin_lock_irqsave(&uintr_wait_lock, flags);
+	list_for_each_entry_safe(upid_ctx, tmp, &uintr_wait_list, node) {
+		if (upid_ctx->task == task) {
+			//pr_debug("wait: Removing task %d from wait\n",
+			//	 upid_ctx->task->pid);
+			upid_ctx->upid->nc.nv = UINTR_NOTIFICATION_VECTOR;
+			upid_ctx->waiting = false;
+			list_del(&upid_ctx->node);
+		}
+	}
+	spin_unlock_irqrestore(&uintr_wait_lock, flags);
+}
+
+static void uintr_clear_blocked_bit(struct uintr_upid_ctx *upid_ctx)
+{
+	upid_ctx->waiting = false;
+	clear_bit(UINTR_UPID_STATUS_BLKD, (unsigned long *)&upid_ctx->upid->nc.status);
+}
+
+/* Always make sure task is_uintr_receiver() before calling */
+static inline bool is_uintr_waiting(struct task_struct *t)
+{
+	return t->thread.upid_ctx->waiting;
+}
+
+void switch_uintr_finish(struct task_struct *next)
+{
+	if (IS_ENABLED(CONFIG_X86_UINTR_BLOCKING) &&
+	    is_uintr_receiver(next) &&
+	    is_uintr_waiting(next)) {
+		if (is_uintr_waiting_cost_sender(next))
+			uintr_clear_blocked_bit(next->thread.upid_ctx);
+		else
+			uintr_remove_task_wait(next);
+	}
+}
+
 /*
  * This should only be called from exit_thread().
  * exit_thread() can happen in current context when the current thread is
@@ -1186,6 +1307,7 @@ void uintr_free(struct task_struct *t)
 			 * generated based on this UPID.
 			 */
 			set_bit(UINTR_UPID_STATUS_SN, (unsigned long *)&upid_ctx->upid->nc.status);
+			uintr_remove_task_wait(t);
 			upid_ctx->receiver_active = false;
 			put_upid_ref(upid_ctx);
 		}
@@ -1216,4 +1338,31 @@ void uintr_free(struct task_struct *t)
 		t->thread.uitt_activated = false;
 	}
 #endif
+}
+
+/*
+ * Runs in interrupt context.
+ * Scan through all UPIDs to check if any interrupt is on going.
+ */
+void uintr_wake_up_process(void)
+{
+	struct uintr_upid_ctx *upid_ctx, *tmp;
+	unsigned long flags;
+
+	/* Fix: 'BUG: Invalid wait context' due to use of spin lock here */
+	spin_lock_irqsave(&uintr_wait_lock, flags);
+	list_for_each_entry_safe(upid_ctx, tmp, &uintr_wait_list, node) {
+		if (test_bit(UINTR_UPID_STATUS_ON, (unsigned long *)&upid_ctx->upid->nc.status)) {
+			pr_debug_ratelimited("uintr: Waking up task %d\n",
+					     upid_ctx->task->pid);
+			set_bit(UINTR_UPID_STATUS_SN, (unsigned long *)&upid_ctx->upid->nc.status);
+			/* Check if a locked access is needed for NV and NDST bits of the UPID */
+			upid_ctx->upid->nc.nv = UINTR_NOTIFICATION_VECTOR;
+			upid_ctx->waiting = false;
+			set_tsk_thread_flag(upid_ctx->task, TIF_NOTIFY_SIGNAL);
+			wake_up_process(upid_ctx->task);
+			list_del(&upid_ctx->node);
+		}
+	}
+	spin_unlock_irqrestore(&uintr_wait_lock, flags);
 }

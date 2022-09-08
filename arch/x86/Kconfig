@@ -1884,6 +1884,23 @@ config X86_USER_INTERRUPTS
 
 	  Refer Documentation/x86/user-interrupts.rst for details.
 
+config X86_UINTR_BLOCKING
+	bool "User Interrupts - blocking support"
+	depends on X86_USER_INTERRUPTS
+	help
+	  User interrupts are delivered to applications immediately if they are
+	  running in userspace. However, if a receiver task has blocked in the
+	  kernel and scheduled out then the interrupt will only get delivered
+	  when the application gets scheduled again.
+
+	  Enabling support for blocking would allow system calls like read(),
+	  sleep() etc; to be interrupted when a user interrupt is initiated.
+	  This behavior is similar to the mechanism provided by signals.
+
+	  Note: The current support for interrupting blocking system calls is
+	  experimental and flaky. Enable this only if you are specifically
+	  testing this. Failures can happen when stressed.
+
 choice
 	prompt "TSX enable mode"
 	depends on CPU_SUP_INTEL

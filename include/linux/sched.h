@@ -123,6 +123,8 @@ struct task_group;
 #define task_is_stopped(task)		((READ_ONCE(task->jobctl) & JOBCTL_STOPPED) != 0)
 #define task_is_stopped_or_traced(task)	((READ_ONCE(task->jobctl) & (JOBCTL_STOPPED | JOBCTL_TRACED)) != 0)
 
+#define task_is_interruptible(task)	((READ_ONCE(task->__state) & TASK_INTERRUPTIBLE) != 0)
+
 /*
  * Special states are those that do not use the normal wait-loop pattern. See
  * the comment with set_special_state().

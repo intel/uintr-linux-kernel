@@ -1069,7 +1069,7 @@ asmlinkage long sys_uintr_register_handler(u64 __user *handler, unsigned int fla
 asmlinkage long sys_uintr_unregister_handler(unsigned int flags);
 asmlinkage long sys_uintr_vector_fd(u64 vector, unsigned int flags);
 asmlinkage long sys_uintr_register_sender(int uvec_fd, unsigned int flags);
-asmlinkage long sys_uintr_unregister_sender(int uvec_fd, unsigned int flags);
+asmlinkage long sys_uintr_unregister_sender(int uipi_index, unsigned int flags);
 asmlinkage long sys_uintr_wait(u64 usec, unsigned int flags);
 asmlinkage long sys_uintr_register_self(u64 vector, unsigned int flags);
 asmlinkage long sys_uintr_alt_stack(void __user *sp, size_t size, unsigned int flags);

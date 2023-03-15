@@ -8,13 +8,13 @@ NAME
 
 
 SYNOPSIS
-        int uintr_unregister_sender(int ipi_index, unsigned int flags);
+        int uintr_unregister_sender(int uipi_index, unsigned int flags);
 
 
 DESCRIPTION
        uintr_unregister_sender() unregisters  a  sender  process  based  on  a
-       ipi_index  it had previously received. If no entry is present with this
-       ipi_index the system call return an error.
+       uipi_index  it  had  previously  received.  If no entry is present with
+       this uipi_index the system call return an error.
 
        The uipi_index that was allocated during uintr_register_sender(2)  will
        be  freed.  If  a  process  tries to use a uipi_index after it has been
@@ -38,7 +38,7 @@ ERRORS
 
        EINVAL      flags is not 0.
 
-       EINVAL      No connection has been setup for this ipi_index.
+       EINVAL      No connection has been setup for this uipi_index.
 
 
 VERSIONS

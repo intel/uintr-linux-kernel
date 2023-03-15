@@ -35,7 +35,7 @@ RETURN VALUE
 
 
 ERRORS
-       ENOSYS  Underlying hardware doesn't have support for Uintr.
+       ENOSYS  Underlying hardware doesn't have support for Uintr(7).
 
        EINVAL       flags is not 0.
 

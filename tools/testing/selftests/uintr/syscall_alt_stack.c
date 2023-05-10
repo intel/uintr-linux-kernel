@@ -80,7 +80,7 @@ static void test_alt_stack(void)
 
 	uintr_on_expected_stack = 0;
 	uintr_received = 0;
-	uintr_expected_sp = (unsigned long long)uintr_sp;
+	uintr_expected_sp = (unsigned long long)uintr_sp + UINTR_ALT_STACK_SIZE;
 
 	printf("[RUN]\tAlternate stack: Test basic alternate stack\n");
 

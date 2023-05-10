@@ -1076,7 +1076,7 @@ static int do_uintr_alt_stack(void __user *sp, size_t size)
 	/* Check: if the stack size needs to be aligned? */
 
 	if (sp)
-		msr64 = (u64)sp | 1; //set alt stack
+		msr64 = (((u64)sp) + size) | 1; //set alt stack
 	else
 		msr64 = OS_ABI_REDZONE; //program OS_ABI_REDZONE
 
